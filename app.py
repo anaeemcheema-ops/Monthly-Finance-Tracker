@@ -1,79 +1,70 @@
 import pandas as pd
 import matplotlib.pyplot as plt
-import gradio as gr
+import streamlit as st
 
-# Global DataFrame to store finances
-finance_data = pd.DataFrame(columns=["Type", "Amount", "Category", "Due Date"])
+# Initialize session state for data storage
+if "finance_data" not in st.session_state:
+    st.session_state.finance_data = pd.DataFrame(columns=["Type", "Amount", "Category", "Due Date"])
 
-def add_entry(entry_type, amount, category, due_date):
-    global finance_data
-    new_entry = {"Type": entry_type, "Amount": amount, "Category": category, "Due Date": due_date}
-    finance_data = pd.concat([finance_data, pd.DataFrame([new_entry])], ignore_index=True)
-    return finance_data, calculate_summary(), generate_bar_chart(), generate_pie_chart()
+st.set_page_config(page_title="Monthly Finance Tracker", page_icon="💰", layout="centered")
 
-def calculate_summary():
-    income = finance_data[finance_data["Type"] == "Income"]["Amount"].sum()
-    expenses = finance_data[finance_data["Type"] == "Expense"]["Amount"].sum()
-    balance = income - expenses
-    summary = f"💰 Total Income: {income}\n💸 Total Expenses: {expenses}\n📊 Balance: {balance}"
-    return summary
+st.title("🏠 Monthly Finance Tracker")
 
-def generate_bar_chart():
-    if finance_data.empty:
-        return None
-    
-    fig, ax = plt.subplots(figsize=(6,4))
-    grouped = finance_data.groupby(["Type", "Category"])["Amount"].sum().unstack(fill_value=0)
-    grouped.T.plot(kind="bar", ax=ax)
-    
-    plt.title("Income vs Expenses by Category")
-    plt.ylabel("Amount")
-    plt.xlabel("Category")
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    return fig
+# --- Input form ---
+with st.form("entry_form"):
+    col1, col2 = st.columns(2)
+    with col1:
+        entry_type = st.radio("Type", ["Income", "Expense"])
+        amount = st.number_input("Amount", min_value=0.0, format="%.2f")
+    with col2:
+        category = st.text_input("Category (e.g., Rent, Salary, Food)")
+        due_date = st.text_input("Due Date (YYYY-MM-DD)")
 
-def generate_pie_chart():
-    if finance_data.empty:
-        return None
-    
-    expenses = finance_data[finance_data["Type"] == "Expense"].groupby("Category")["Amount"].sum()
-    if expenses.empty:
-        return None
-    
-    fig, ax = plt.subplots(figsize=(5,5))
-    expenses.plot(kind="pie", autopct='%1.1f%%', ax=ax)
-    plt.title("Expense Distribution by Category")
-    plt.ylabel("")
-    plt.tight_layout()
-    return fig
+    submitted = st.form_submit_button("➕ Add Entry")
+    if submitted:
+        if amount > 0 and category.strip() != "":
+            new_entry = {"Type": entry_type, "Amount": amount, "Category": category, "Due Date": due_date}
+            st.session_state.finance_data = pd.concat(
+                [st.session_state.finance_data, pd.DataFrame([new_entry])],
+                ignore_index=True
+            )
+            st.success("Entry added!")
+        else:
+            st.warning("Please enter a valid amount and category.")
 
-def reset_data():
-    global finance_data
-    finance_data = pd.DataFrame(columns=["Type", "Amount", "Category", "Due Date"])
-    return finance_data, "Data reset! Add new entries.", None, None
+# Reset button
+if st.button("🔄 Reset All Data"):
+    st.session_state.finance_data = pd.DataFrame(columns=["Type", "Amount", "Category", "Due Date"])
+    st.success("All data has been reset!")
 
-# Gradio UI
-with gr.Blocks() as demo:
-    gr.Markdown("# 🏠 Monthly Finance Tracker with Charts")
-    
-    with gr.Row():
-        entry_type = gr.Radio(["Income", "Expense"], label="Type", value="Income")
-        amount = gr.Number(label="Amount")
-    
-    with gr.Row():
-        category = gr.Textbox(label="Category (e.g., Rent, Salary, Food)")
-        due_date = gr.Textbox(label="Due Date (e.g., 2025-09-05)")
-    
-    add_btn = gr.Button("Add Entry")
-    reset_btn = gr.Button("Reset Data")
-    
-    finance_table = gr.DataFrame(headers=["Type", "Amount", "Category", "Due Date"], interactive=False)
-    summary_box = gr.Textbox(label="Summary", interactive=False)
-    bar_chart = gr.Plot(label="Bar Chart: Income vs Expenses by Category")
-    pie_chart = gr.Plot(label="Pie Chart: Expense Distribution")
-    
-    add_btn.click(add_entry, inputs=[entry_type, amount, category, due_date], outputs=[finance_table, summary_box, bar_chart, pie_chart])
-    reset_btn.click(reset_data, inputs=None, outputs=[finance_table, summary_box, bar_chart, pie_chart])
+st.markdown("---")
 
-demo.launch()
+# --- Show data table ---
+st.subheader("📋 Entries")
+st.dataframe(st.session_state.finance_data, use_container_width=True)
+
+# --- Summary section ---
+income = st.session_state.finance_data[st.session_state.finance_data["Type"] == "Income"]["Amount"].sum()
+expenses = st.session_state.finance_data[st.session_state.finance_data["Type"] == "Expense"]["Amount"].sum()
+balance = income - expenses
+
+st.subheader("📊 Summary")
+col1, col2, col3 = st.columns(3)
+col1.metric("💰 Total Income", f"${income:,.2f}")
+col2.metric("💸 Total Expenses", f"${expenses:,.2f}")
+col3.metric("🏦 Balance", f"${balance:,.2f}")
+
+# --- Charts ---
+if not st.session_state.finance_data.empty:
+    grouped = st.session_state.finance_data.groupby(["Type", "Category"])["Amount"].sum().unstack(fill_value=0)
+
+    st.subheader("📈 Income vs Expenses by Category")
+    st.bar_chart(grouped)
+
+    expenses_by_cat = st.session_state.finance_data[st.session_state.finance_data["Type"] == "Expense"].groupby("Category")["Amount"].sum()
+    if not expenses_by_cat.empty:
+        st.subheader("🥧 Expense Distribution")
+        fig, ax = plt.subplots()
+        expenses_by_cat.plot(kind="pie", autopct='%1.1f%%', ax=ax)
+        ax.set_ylabel("")
+        st.pyplot(fig)
